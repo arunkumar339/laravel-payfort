@@ -90,6 +90,77 @@ trait PayfortAPIRequest
     }
 
     /**
+     * Process api payment request using token.
+     *
+     * @see https://docs.payfort.com/docs/api/build/index.html#recurring-transactions
+     *
+     * @param array $data The request parameters for processing payment request
+     * @return \stdClass
+     *
+     * @throws \LaravelPayfort\Exceptions\PayfortRequestException
+     */
+    public function processPaymentThroughAPI($data)
+    {
+        # Prepare api request parameters
+        $requestParams = [
+            'command' => data_get($data, 'command', 'PURCHASE'),
+            'access_code' => $this->config['access_code'],
+            'merchant_identifier' => $this->config['merchant_identifier'],
+            'merchant_reference' => $data['merchant_reference'],
+            'amount' => $this->getPayfortAmount($data['amount'], $data['currency']),
+            'currency' => data_get($data, 'currency', $this->config['currency']),
+            'language' => $this->config['language'],
+            'customer_email' => $data['customer_email'],
+            'eci' => 'RECURRING',
+            'token_name' => $data['token_name'],
+
+        ];
+
+        # Redirection page request optional parameters
+        $requestOptionalParameters = [
+            'payment_option',
+            'order_description',
+            'customer_name',
+            'merchant_extra',
+            'merchant_extra1',
+            'merchant_extra2',
+            'merchant_extra3',
+            'phone_number',
+            'settlement_reference'
+        ];
+
+        # Check for request optional parameters in passed params
+        foreach ($requestOptionalParameters as $optionalParameter) {
+              if (array_key_exists($optionalParameter, $data)) {
+                  $requestParams[$optionalParameter] = $data[$optionalParameter];
+              }
+        }
+        $response = $this->callPayfortAPI($requestParams);
+
+      /*
+       * According to payfort documentation
+       * 14 refers to Purchase Success.
+       * @see https://docs.payfort.com/docs/in-common/build/index.html#statuses
+       */
+        if ($response->status != '14') {
+          throw new PayfortRequestException($response->response_message);
+        }
+
+      /*
+      * According to payfort documentation
+      * 14  refers to Check Status success.
+      * 000 refers to success message
+      * @see https://docs.payfort.com/docs/in-common/build/index.html#statuses
+      */
+        if ($response->response_code != '14000') {
+          throw new PayfortRequestException($response->response_message);
+        }
+
+
+    }
+
+
+    /**
      * Make Payfort check status request & return response.
      *
      * @see https://docs.payfort.com/docs/in-common/build/index.html#check-status
