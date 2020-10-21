@@ -23,10 +23,37 @@ trait PayfortRedirectRequest
             'merchant_identifier' => $this->config['merchant_identifier'],
             'merchant_reference' => $data['merchant_reference'],
             'language' => $this->config['language'],
-            'return_url' => $this->config['return_url']
+            'return_url' => $this->config['return_url'],
         ];
 
-        return $this->displayPayfortPage($requestParams);
+        $optionalParams = [
+            'remember_me' => 'YES',
+            'card_number' => $data['card_number'],
+            'expiry_date' => $data['expiry_date'],
+            'card_security_code' => $data['card_security_code'],
+            'card_holder_name' => $data['card_holder_name'],
+        ];
+
+        return $this->displayTokenizationPayfortPage($requestParams, $optionalParams);
+    }
+
+    /**
+     * Display payfort redirection page
+     *
+     * @param array $requestParams
+     * @return \Illuminate\View\View|\Illuminate\Contracts\View\Factory
+     */
+    private function displayTokenizationPayfortPage($requestParams, $optionalParams)
+    {
+        # Payfort redirect url
+        $redirectUrl = $this->payfortEndpoint;
+
+        # Add signature parameter
+        $requestParams['signature'] = $this->calcPayfortSignature($requestParams, 'request');
+
+        $requestParams = array_merge($requestParams, $optionalParams);
+
+        return view('laravel-payfort::merchant-page', compact('requestParams', 'redirectUrl'));
     }
 
     /**
@@ -76,7 +103,6 @@ trait PayfortRedirectRequest
 
         return $this->displayPayfortPage($requestParams);
     }
-
 
     /**
      * Display payfort redirection page

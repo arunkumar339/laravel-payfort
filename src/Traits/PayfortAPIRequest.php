@@ -54,6 +54,43 @@ trait PayfortAPIRequest
     }
 
     /**
+     * Make Payfort Http request & return response.
+     *
+     * @param array $data Request parameters
+     * @return \stdClass
+     *
+     * @throws \LaravelPayfort\Exceptions\PayfortException
+     */
+    private function callPayfortAPI($data)
+    {
+        # Add payfort request signature to request data
+        $data['signature'] = $this->calcPayfortSignature($data, 'request');
+
+        try {
+            # Make http request
+            $rawResponse = $this->httpClient->post($this->payfortEndpoint, [
+                'json' => $data
+            ])->getBody();
+
+            $response = json_decode($rawResponse);
+
+            if (data_get($response, 'status') == '00') {
+                throw new PayfortException(data_get($response, 'response_message'));
+            }
+
+            # Verify response signature
+            if (data_get($response, 'signature') != $this->calcPayfortSignature(((array) $response), 'response')) {
+                throw new PayfortException('Payfort response signature mismatched');
+            }
+
+            return $response;
+
+        } catch (\Exception $e) {
+            throw new PayfortException($e);
+        }
+    }
+
+    /**
      * Make Payfort check status request & return response.
      *
      * @see https://docs.payfort.com/docs/in-common/build/index.html#check-status
@@ -71,94 +108,6 @@ trait PayfortAPIRequest
 
         return $response;
     }
-
-    /**
-     * Make Payfort check status request & return response.
-     *
-     * @see https://docs.payfort.com/docs/in-common/build/index.html#check-status
-     *
-     * @param string $merchant_reference The Merchant reference to check for its transactions status
-     * @return \stdClass
-     *
-     * @throws \LaravelPayfort\Exceptions\PayfortRequestException
-     */
-    public function checkOrderStatusByMerchantReference($merchant_reference)
-    {
-        return $this->checkOrderStatus([
-            'merchant_reference' => $merchant_reference
-        ]);
-    }
-
-    /**
-     * Process api payment request using token.
-     *
-     * @see https://docs.payfort.com/docs/api/build/index.html#recurring-transactions
-     *
-     * @param array $data The request parameters for processing payment request
-     * @return \stdClass
-     *
-     * @throws \LaravelPayfort\Exceptions\PayfortRequestException
-     */
-    public function processPaymentThroughAPI($data)
-    {
-        # Prepare api request parameters
-        $requestParams = [
-            'command' => data_get($data, 'command', 'PURCHASE'),
-            'access_code' => $this->config['access_code'],
-            'merchant_identifier' => $this->config['merchant_identifier'],
-            'merchant_reference' => $data['merchant_reference'],
-            'amount' => $this->getPayfortAmount($data['amount'], $data['currency']),
-            'currency' => data_get($data, 'currency', $this->config['currency']),
-            'language' => $this->config['language'],
-            'customer_email' => $data['customer_email'],
-            'eci' => 'RECURRING',
-            'token_name' => $data['token_name'],
-
-        ];
-
-        # Redirection page request optional parameters
-        $requestOptionalParameters = [
-            'payment_option',
-            'order_description',
-            'customer_name',
-            'merchant_extra',
-            'merchant_extra1',
-            'merchant_extra2',
-            'merchant_extra3',
-            'phone_number',
-            'settlement_reference'
-        ];
-
-        # Check for request optional parameters in passed params
-        foreach ($requestOptionalParameters as $optionalParameter) {
-              if (array_key_exists($optionalParameter, $data)) {
-                  $requestParams[$optionalParameter] = $data[$optionalParameter];
-              }
-        }
-        $response = $this->callPayfortAPI($requestParams);
-
-      /*
-       * According to payfort documentation
-       * 14 refers to Purchase Success.
-       * @see https://docs.payfort.com/docs/in-common/build/index.html#statuses
-       */
-        if ($response->status != '14') {
-          throw new PayfortRequestException($response->response_message);
-        }
-
-      /*
-      * According to payfort documentation
-      * 14  refers to Check Status success.
-      * 000 refers to success message
-      * @see https://docs.payfort.com/docs/in-common/build/index.html#statuses
-      */
-        if ($response->response_code != '14000') {
-          throw new PayfortRequestException($response->response_message);
-        }
-
-
-    }
-
 
     /**
      * Make Payfort check status request & return response.
@@ -201,41 +150,123 @@ trait PayfortAPIRequest
         }
     }
 
-
     /**
-     * Make Payfort Http request & return response.
+     * Make Payfort check status request & return response.
      *
-     * @param array $data Request parameters
+     * @see https://docs.payfort.com/docs/in-common/build/index.html#check-status
+     *
+     * @param string $merchant_reference The Merchant reference to check for its transactions status
      * @return \stdClass
      *
-     * @throws \LaravelPayfort\Exceptions\PayfortException
+     * @throws \LaravelPayfort\Exceptions\PayfortRequestException
      */
-    private function callPayfortAPI($data)
+    public function checkOrderStatusByMerchantReference($merchant_reference)
     {
-        # Add payfort request signature to request data
-        $data['signature'] = $this->calcPayfortSignature($data, 'request');
+        return $this->checkOrderStatus([
+            'merchant_reference' => $merchant_reference
+        ]);
+    }
 
-        try {
-            # Make http request
-            $rawResponse = $this->httpClient->post($this->payfortEndpoint, [
-                'json' => $data
-            ])->getBody();
+    /**
+     * Process api payment request using token.
+     *
+     * @see https://docs.payfort.com/docs/api/build/index.html#recurring-transactions
+     *
+     * @param array $data The request parameters for processing payment request
+     * @return \stdClass
+     *
+     */
+    public function processPurchasePaymentThroughAPI($data)
+    {
+        # Prepare api request parameters
+        $requestParams = [
+            'command' => data_get($data, 'command', 'PURCHASE'),
+            'access_code' => $this->config['access_code'],
+            'merchant_identifier' => $this->config['merchant_identifier'],
+            'merchant_reference' => $data['merchant_reference'],
+            'amount' => $this->getPayfortAmount($data['amount'], $data['currency']),
+            'currency' => data_get($data, 'currency', $this->config['currency']),
+            'language' => $this->config['language'],
+            'customer_email' => $data['customer_email'],
+            'eci' => data_get($data, 'eci', 'ECOMMERCE'),
+            'remember_me' => data_get($data, 'remember_me', 'YES'),
+            'token_name' => $data['token_name'],
+        ];
 
-            $response = json_decode($rawResponse);
+        # Redirection page request optional parameters
+        $requestOptionalParameters = [
+            'payment_option',
+            'card_security_code',
+            'order_description',
+            'customer_name',
+            'merchant_extra',
+            'merchant_extra1',
+            'merchant_extra2',
+            'merchant_extra3',
+            'phone_number',
+            'settlement_reference',
+            'customer_ip',
+            'return_url'
+        ];
 
-            if (data_get($response, 'status') == '00') {
-                throw new PayfortException(data_get($response, 'response_message'));
+        # Check for request optional parameters in passed params
+        foreach ($requestOptionalParameters as $optionalParameter) {
+            if (array_key_exists($optionalParameter, $data)) {
+                $requestParams[$optionalParameter] = $data[$optionalParameter];
             }
-
-            # Verify response signature
-            if (data_get($response, 'signature') != $this->calcPayfortSignature(((array)$response), 'response')) {
-                throw new PayfortException('Payfort response signature mismatched');
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            throw new PayfortException($e);
         }
+        $response = $this->callPayfortAPI($requestParams);
+
+        return $response;
+
+    }
+
+    /**
+     * Process Recurring payment request using token.
+     *
+     * @see https://docs.payfort.com/docs/api/build/index.html#merchant-page-operations
+     *
+     * @param array $data The request parameters for processing payment request
+     * @return \stdClass
+     *
+     */
+    public function processRecurringPaymentThroughAPI($data)
+    {
+        # Prepare api request parameters
+        $requestParams = [
+            'command' => data_get($data, 'command', 'PURCHASE'),
+            'access_code' => $this->config['access_code'],
+            'merchant_identifier' => $this->config['merchant_identifier'],
+            'merchant_reference' => $data['merchant_reference'],
+            'amount' => $this->getPayfortAmount($data['amount'], $data['currency']),
+            'currency' => data_get($data, 'currency', $this->config['currency']),
+            'language' => $this->config['language'],
+            'customer_email' => $data['customer_email'],
+            'eci' => data_get($data, 'eci', 'RECURRING'),
+            'token_name' => $data['token_name'],
+        ];
+
+        # Redirection page request optional parameters
+        $requestOptionalParameters = [
+            'payment_option',
+            'order_description',
+            'customer_name',
+            'merchant_extra',
+            'merchant_extra1',
+            'merchant_extra2',
+            'merchant_extra3',
+            'phone_number',
+            'settlement_reference',
+        ];
+
+        # Check for request optional parameters in passed params
+        foreach ($requestOptionalParameters as $optionalParameter) {
+            if (array_key_exists($optionalParameter, $data)) {
+                $requestParams[$optionalParameter] = $data[$optionalParameter];
+            }
+        }
+        return $this->callPayfortAPI($requestParams);
+
+
     }
 }

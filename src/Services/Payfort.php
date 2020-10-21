@@ -21,6 +21,14 @@ abstract class Payfort
     protected $payfortEndpoint;
 
     /**
+     * @return string
+     */
+    public function getPayfortEndpoint(): string
+    {
+        return $this->payfortEndpoint;
+    }
+
+    /**
      * Payfort Processor Constructor.
      *
      * @param $config

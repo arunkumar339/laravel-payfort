@@ -32,6 +32,10 @@ class PayfortServiceProvider extends ServiceProvider
             $this->configPath => config_path('payfort.php'),
         ], 'config');
 
+        $this->publishes([
+            $this->viewsPath => resource_path('views/vendor/laravel-payfort'),
+        ], 'views');
+
         # Load package translation files
         $this->loadTranslationsFrom($this->translationsPath, 'laravel-payfort');
 
